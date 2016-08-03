@@ -1,0 +1,67 @@
+// Author: Vishwas K. Mruthyunjaya
+// University of Plymouth, UK
+// Fall 2014
+// Instructor: Tony Belpaeme
+#define threshold 38                                                               //Threshold value
+int LeftLight = 0;                                                                 //Holds value of threshold - left light sensor
+int RightLight = 0;                                                                //Holds value of threshold - right light sensor
+mutex LightMutex;
+
+task SetRight()                                                                    //Right wheel thread
+{
+  while (true)                                                                     //Infinite loop
+  {
+    Acquire(LightMutex);                                                           //Acquire mutex key
+    RightLight = (threshold - Sensor(IN_1));                                       //Right motor speed proportional to right sensor input
+    OnFwd(OUT_A, 10 * (RightLight));                                               //Set right wheel speed
+    Release(LightMutex);                                                           //Release mutex key
+  }
+}
+
+task SetLeft()                                                                     //Left wheel thread
+{
+  while (true)                                                                     //Infinite loop
+  {
+    Acquire(LightMutex);                                                           //Acquire mutex key
+    LeftLight  = (threshold - Sensor(IN_3));                                       //Left motor speed proportional to left sensor input
+    OnFwd(OUT_C, 10 * LeftLight);                                                  //Set left wheel speed
+    Release(LightMutex);                                                           //Release mutex key
+  }
+}
+
+task Forward()                                                                    //Motors forward only thread
+{
+  while (true)                                                                    //Infinite loop
+  {
+    Acquire(LightMutex);                                                          //Acquire mutex key
+    
+    LeftLight = Sensor(IN_3);                                                     //Store current value of left sensor
+    RightLight = Sensor(IN_1);                                                    //Store current value of right sensor
+    int SensorTotal = LeftLight + RightLight;                                     //Summation of left and right sensors
+    OnFwd(OUT_AC, 70 + SensorTotal);                                              //Set both motors with offset + combined sensor values
+    Release(LightMutex);                                                          //Release mutex key
+  }
+}
+
+task RandomMovement()                                                             //Random movement thread
+{
+  while (true)                                                                    //Infinite loop
+  {
+    Acquire(LightMutex);                                                          //Acquire mutex key
+    LeftLight  = (threshold - Sensor(IN_3));                                      //Left motor speed proportional to right sensor input
+    RightLight = (threshold - Sensor(IN_1));                                      //Right motor speed proportional to right sensor input
+    int CheckDirection = LeftLight * RightLight;                                  //Expression to check the direction factor
+    if (CheckDirection > 0) CheckDirection = 1;                                   //Setting the multiplication factor for direction to positive
+    if (CheckDirection < 0) CheckDirection = -1;                                  //Setting the multiplication factor for direction to negative
+    OnFwd(OUT_AC, CheckDirection *( 90 + RightLight + LeftLight));                //Set both motors with offset multiplied with direction factor
+    Release(LightMutex);                                                          //Release mutex key
+   }
+}
+
+
+task main()
+{
+  SetSensorLight(IN_1);                                                           //Setup right light sensor IN1
+  SetSensorLight(IN_3);                                                           //Setup right light sensor IN3
+  Precedes(Forward, SetRight, SetLeft, RandomMovement);                           //Initialise threads
+}
