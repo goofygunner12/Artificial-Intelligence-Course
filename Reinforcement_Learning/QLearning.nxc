@@ -1,0 +1,281 @@
+/*
+  AINT509 Coursework: Q-Learning.
+  Lecturer: Tony Belphame
+  Date: 18 March 2015
+  Student ID: 10511119
+  Name: Vishwas K.M
+  Video: https://www.youtube.com/watch?v=zQqLqF4JWfQ
+*/
+#include "NXCDefs.h"
+
+// Actions
+#define Total_Actions 3
+#define Action_Left 0    // Left
+#define Action_Right 1   // Right
+#define Action_Linear 2  // Straight
+
+// States
+#define Total_States 4
+#define WW 0 // Lower bound + Lower bound
+#define WB 1 // Lower bound + Upper bound
+#define BW 2 // Upper bound + Lower bound
+#define BB 3 // Upper bound + Upper bound
+
+
+// Global Variables
+float Qmatrix[Total_States][Total_Actions];
+float rewards[Total_States];
+int state;
+long lowerBound;
+long upperBound;
+
+/*
+  Function to get the high and low sensor light values.
+*/
+void getLightValues()
+{
+  PlayTone(600, 500);
+  TextOut(0, LCD_LINE1, "Get Lower Bound");
+  Wait(4000);
+
+  PlayTone(300, 500);
+  lowerBound = SensorRaw(IN_1);
+  TextOut(0, LCD_LINE2, "Lower Bound =    ");
+  NumOut(80, LCD_LINE2, lowerBound);
+  PlayTone(600, 500);
+  Wait(4000);
+
+  PlayTone(600, 500);
+  TextOut(0, LCD_LINE3, "Get Upper Bound");
+  Wait(4000);
+  
+  PlayTone(300, 500);
+  upperBound = SensorRaw(IN_1);
+  TextOut(0, LCD_LINE4, "Upper Bound =    ");
+  NumOut(80, LCD_LINE4, upperBound);
+  PlayTone(600, 500);
+  Wait(4000);
+
+  PlayTone(800, 300);
+  Wait(1000);
+  ClearScreen();
+
+  if (lowerBound > upperBound) {
+    TextOut(0, LCD_LINE5, " Error");
+    PlayTone(210, 1000);
+    Wait(2000);
+    abort();
+  }
+}
+
+/*
+  Motor actions according to the passed action
+*/
+void executeAction(int action)
+{
+  if (action == Action_Left)
+  {
+    OnFwdReg(OUT_A,  12, OUT_REGMODE_SPEED);
+    OnFwdReg(OUT_B, -12, OUT_REGMODE_SPEED);
+  }
+  else if (action == Action_Right)
+  {
+    OnFwdReg(OUT_A, -12, OUT_REGMODE_SPEED);
+    OnFwdReg(OUT_B,  12, OUT_REGMODE_SPEED);
+  }
+  else
+  {
+    OnFwdReg(OUT_A, 25, OUT_REGMODE_SPEED);
+    OnFwdReg(OUT_B, 25, OUT_REGMODE_SPEED);
+  }
+  Wait(300);
+}
+
+/*
+ Function to find the next state
+*/
+int readSensorValues() {
+  // Initialise parameters to read current sensor values
+  long sensor1 = 0;
+  long sensor2 = 0;
+  sensor1 = SensorRaw(IN_1);
+  sensor2 = SensorRaw(IN_2);
+
+  /*
+    Find the difference between upper and lower bound
+    of both the sesnors from the initial calibrated values.
+  */
+  float lowerBound1 = abs(lowerBound - sensor1);
+  float upperBound1 = abs(upperBound - sensor1);
+  float lowerBound2 = abs(lowerBound - sensor2);
+  float upperBound2 = abs(upperBound - sensor2);
+
+  // assign the state from the calculated differences above.
+  if (lowerBound1 < upperBound1)
+  {
+     if(lowerBound2 < upperBound2)
+        return WW;
+     else if (upperBound2 <= lowerBound2)
+        return WB;
+  }
+  else if(upperBound1 <= lowerBound1 && lowerBound2 < upperBound2)
+    return BW;
+  else
+    return BB;
+}
+
+/*
+  Function to highest Q matrix value for the given state.
+*/
+float computeQmax(int state)
+{
+  /*
+    Assign Qmax with Qmatrix value of the
+    first action for the passed state value.
+  */
+  float Qmax = Qmatrix[state][0];
+  for (int i=1; i<Total_Actions; ++i)
+      if (Qmax < Qmatrix[state][i])
+         Qmax = Qmatrix[state][i];
+  return Qmax;
+}
+
+/*
+  Softmax function: The best action is selected with probability 1 - e
+  and the rest of the time a random action is chosen uniformly.
+  
+  Function to find the random action for the passed state value.
+*/
+int selectAction(int s)
+{
+  float tempSum = 0.0, sum = 0, P[Total_Actions];
+  float randomNum = Random(10000);
+  int action = (Total_Actions) - 1;
+
+  /*
+    Softmax equation.
+    P(a) = {exp(q(a)/torque)} / {summation (exp(q(i) / torque}
+  */
+
+  for (int i=0; i<Total_Actions; ++i)
+  {
+    P[i] = exp(Qmatrix[s][i] - ((tempSum*3)/2));
+    //P[i] = exp(Qmatrix[s][i]*0.05);
+    tempSum += P[i];
+  }
+  // Loop to pick random action
+  for (int i=0; i<Total_Actions; ++i)
+  {
+    P[i]  = P[i]/tempSum;
+    sum += P[i];
+    NumOut(25, (40 + (6*i)),  P[i]);
+    NumOut((25), (30),  sum);
+
+    if (randomNum <= sum * 10000)
+    {
+      action = i;
+      break;
+    }
+  }
+  /*
+  Alternate Algorithm to get a random action
+  int i = 0;
+  while (randomNum > 0)
+  {
+    if ( i < Total_Actions)
+    {
+       randomNum = randomNum - P[i];
+       i = i + 1;
+    }
+    action = i;
+  }
+  */
+  return action;
+}
+
+//Main Function
+task main()
+{
+  // Initialise current state, action, and next state
+  int currentState, action, nextState;
+
+  // Initialise Q-Matrix values to zero for all the states and actions
+  for (int i=0; i<Total_States; i++)
+    for (int j=0; j<Total_Actions; j++)
+      Qmatrix[i][j]=0;
+  
+  //Assign reward value for all the states
+  rewards[BB] = 1;//-0.05;
+  rewards[WB] = -0.05;//1;
+  rewards[BW] = -0.05;
+  rewards[WW] = -1;
+
+  // Initialise Sensors
+  SetSensorLight(IN_1);
+  SetSensorLight(IN_2);
+  SetSensorMode(IN_1, SENSOR_MODE_RAW);
+  SetSensorMode(IN_2, SENSOR_MODE_RAW);
+  
+  // Get the upper bound and Lower bound sensor light values
+  getLightValues();
+  TextOut(0, LCD_LINE1, "Setting Forward");
+  Wait(2000);
+  ClearScreen();
+  
+  /*
+   Set the LEGO to Straight motion.
+   Get the sensor values and observe the current state.
+  */
+  TextOut(0, LCD_LINE3, "Reading Current State...");
+  Wait(1000);
+  ClearScreen();
+  executeAction(Action_Linear);
+  currentState = readSensorValues();
+  Wait(1500);
+  
+  /*
+    Do forever
+      1. Select an action 'a' and execute it.
+      2. Receive immediate reward 'r'.
+      3. Observe the new state s’
+      4. Update the table entry for Q(s,a)
+      5. s <-- s '
+  */
+  while(TRUE)
+  {
+    action = selectAction(currentState);
+    executeAction(action);
+    nextState = readSensorValues();
+    // Display Current state, action, and next  state
+    NumOut(10, 5, currentState);
+    NumOut(30, 5, action);
+    NumOut(60, 5, nextState);
+
+    /*
+      Re-inforcement Learning Equation:
+      Q(s,a) = (1-alpha)*Q(s,a) + alpha*(R(s') + lambda*Q(s'))
+      
+      Note: When (1-alpha)*Q(s,a) is made zero, the tobot learns faster.
+      1-alpha)*Q(s,a) is required when the learning environment has lot of noise,
+      i.e more elements/ dynamically changing elements.
+    */
+     Qmatrix[currentState][action] = ((0.5)*Qmatrix[currentState][action] +
+		 0.5*(rewards[nextState] + 1*computeQmax(nextState)));
+    
+    //Assigning next state to current state
+    currentState = nextState;
+  }
+}
+
+/*
+  List of referred sites on Q-Learning and SoftMax:
+
+  http://webdocs.cs.ualberta.ca/~sutton/book/2/node4.html
+  http://en.wikipedia.org/wiki/Softmax_function
+  http://en.wikipedia.org/wiki/Q-learning
+  http://www.cse.unsw.edu.au/~cs9417ml/RL1/algorithms.html
+  http://www.cse.unsw.edu.au/~cs9417ml/RL1/tdlearning.html#aselection
+  http://artint.info/html/ArtInt_266.html
+  https://www.eecs.berkeley.edu/~trevor/papers/1997-045/node3.html
+  http://computing.dcu.ie/~humphrys/Notes/AI/boltzmann.html
+*/
